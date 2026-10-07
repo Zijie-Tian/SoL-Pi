@@ -24,14 +24,14 @@ import {
 	type EditToolDetails,
 	type EditToolOptions,
 	type ExtensionAPI,
+	type ExtensionContext,
 	type ExtensionFactory,
 	type WriteToolOptions,
 } from "@earendil-works/pi-coding-agent";
-import { Type } from "typebox";
 import { resolveToolPath } from "./file-queue.ts";
-import { renderSolPiTool, showSolPiSavings } from "../../tui.ts";
+import { fusedEditPath, withThenRun } from "./host-schema.ts";
+import { formatSavingsCount, renderSolPiTool, showSolPiSavings } from "../../tui.ts";
 import {
-	createThenRunSchema,
 	executeMutationThenRun,
 	THEN_RUN_SUCCEEDED,
 	type ThenRunInput,
@@ -66,6 +66,17 @@ function memoizeByCwd<T>(create: (cwd: string) => T): (cwd: string) => T {
 	};
 }
 
+function showFusionSavings(ctx: ExtensionContext): void {
+	if (ctx.mode !== "tui") return;
+	// The skipped provider request has no usage record. Its replay cost can only
+	// be estimated from the current context, not reported as billed-token savings.
+	const tokens = ctx.getContextUsage()?.tokens;
+	const saving = typeof tokens === "number" && Number.isFinite(tokens) && tokens >= 0
+		? `approximately ${formatSavingsCount(tokens, "input tokens of context replay avoided")}; 1 model round-trip (context-size estimate)`
+		: "token savings unavailable; 1 model round-trip avoided";
+	showSolPiSavings(ctx, "Action Fusion", saving);
+}
+
 export function createActionFusionExtension(options: ActionFusionOptions = {}): ExtensionFactory {
 	const baseEdit = memoizeByCwd((cwd: string) => createEditToolDefinition(cwd, options.editOptions));
 	const baseWrite = memoizeByCwd((cwd: string) => createWriteToolDefinition(cwd, options.writeOptions));
@@ -74,23 +85,21 @@ export function createActionFusionExtension(options: ActionFusionOptions = {}): 
 		const editTemplate = baseEdit(process.cwd());
 		const writeTemplate = baseWrite(process.cwd());
 
-		const editParameters = Type.Object({
-			...editTemplate.parameters.properties,
-			then_run: createThenRunSchema(EDIT_THEN_RUN_DESCRIPTION),
-		});
-		const writeParameters = Type.Object({
-			...writeTemplate.parameters.properties,
-			then_run: createThenRunSchema(WRITE_THEN_RUN_DESCRIPTION),
-		});
+		const editParameters = withThenRun(editTemplate.parameters, EDIT_THEN_RUN_DESCRIPTION);
+		const writeParameters = withThenRun(writeTemplate.parameters, WRITE_THEN_RUN_DESCRIPTION);
 
 		pi.registerTool<typeof editParameters, EditToolDetails | undefined>({
 			...editTemplate,
 			parameters: editParameters,
 			async execute(toolCallId, input, signal, onUpdate, ctx) {
 				const { then_run, ...editInput } = input as typeof input & { then_run?: ThenRunInput };
+				// Preserve OMP's native multi-file edit when fusion was not requested.
+				if (!then_run && typeof input.path !== "string") {
+					return baseEdit(ctx.cwd).execute(toolCallId, editInput, signal, onUpdate, ctx);
+				}
 				const result = await executeMutationThenRun({
 					toolCallId,
-					absolutePath: resolveToolPath(ctx.cwd, input.path),
+					absolutePath: fusedEditPath(ctx.cwd, input),
 					thenRun: then_run,
 					bashOptions: options.bashOptions,
 					signal,
@@ -101,7 +110,7 @@ export function createActionFusionExtension(options: ActionFusionOptions = {}): 
 					then_run &&
 					result.content.some((block) => block.type === "text" && block.text.includes(THEN_RUN_SUCCEEDED))
 				) {
-					showSolPiSavings(ctx, "Action Fusion", "1 model round-trip avoided");
+					showFusionSavings(ctx);
 				}
 				return result;
 			},
@@ -135,7 +144,7 @@ export function createActionFusionExtension(options: ActionFusionOptions = {}): 
 					then_run &&
 					result.content.some((block) => block.type === "text" && block.text.includes(THEN_RUN_SUCCEEDED))
 				) {
-					showSolPiSavings(ctx, "Action Fusion", "1 model round-trip avoided");
+					showFusionSavings(ctx);
 				}
 				return result;
 			},

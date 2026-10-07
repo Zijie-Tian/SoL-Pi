@@ -57,18 +57,25 @@ Read our paper: [SoL-Pi: Recursively Scaling Auto-Research Loops for Efficient A
 
 ## Getting Started
 
+### OMP profile in this fork
+
+The `tzj/omp-sol-pi-compat` branch supports the explicitly selected two-feature
+profile on OMP 18.6.1 and 18.7.0: Action Fusion and ObservationPack. Use a user-level local
+link from this fork's branch, not an upstream install. See [OMP installation and
+verification](docs/omp.md) for commands, tests, and the single-file fused-edit limit.
+
 ### Requirements
 
 - Node.js 22.19 or newer
 - npm
-- `@earendil-works/pi-coding-agent` 0.85.1
+- `@earendil-works/pi-coding-agent` 1.0.4
 
 ### Install
 
 Install the tested Pi release:
 
 ```bash
-npm install --global @earendil-works/pi-coding-agent@0.85.1
+npm install --global @earendil-works/pi-coding-agent@1.0.4
 ```
 
 Then install SoL-Pi directly from [NVlabs/SoL-Pi](https://github.com/NVlabs/SoL-Pi):
@@ -147,7 +154,7 @@ npm audit --audit-level=high
 node scripts/check-pi-compat.mjs
 ```
 
-`npm run check` covers TypeScript, the complete test suite, and package inspection. The development dependency set is pinned to Pi 0.85.1; runtime Pi packages remain peer dependencies so Pi owns their installation and upgrades.
+`npm run check` covers TypeScript, the complete test suite, and package inspection. The development dependency set is pinned to Pi 1.0.4; runtime Pi packages remain peer dependencies so Pi owns their installation and upgrades.
 
 ## Project Status
 

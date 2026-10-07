@@ -15,7 +15,7 @@ import {
 	FULL_SENDS,
 	THRESHOLD_BYTES,
 } from "../src/sol-pi/extensions/observation-pack/index.ts";
-import { componentText, FakePi, FakeSessionManager, fakeContext, plainTheme } from "./helpers.ts";
+import { FakePi, FakeSessionManager, fakeContext } from "./helpers.ts";
 import { runtimeRoot } from "../src/sol-pi/runtime-paths.ts";
 
 const roots: string[] = [];
@@ -125,15 +125,6 @@ describe("observation pack", () => {
 		expect(pi.registeredTools.map((tool) => tool.name)).toEqual(["obs_recall"]);
 	});
 
-	it("renders observation recall as an English lightning savings call", () => {
-		const recall = observationPackPi().tool("obs_recall");
-		const args = { id: "obs_0123456789abcdef01234567", offset: 0 };
-		const rendered = recall.renderCall!(args, plainTheme, { args, cwd: process.cwd() } as never);
-
-		expect(componentText(rendered)).toContain("⚡ SoL-Pi · Observation Pack");
-		expect(componentText(rendered)).toContain("Money saved");
-	});
-
 	it("keeps the first two requests full and reuses one stable placeholder afterwards", async () => {
 		const sessionDir = await sessionRoot();
 		const body = `head line\n${repeatPastThreshold("middle line\n")}tail line\n`;
@@ -155,29 +146,67 @@ describe("observation pack", () => {
 		expect(await readFile(observationPath(sessionDir, id!), "utf8")).toBe(body);
 	});
 
-	it("announces the first measured placeholder saving only in TUI mode", async () => {
-		vi.useFakeTimers();
+	it("reports each placeholder reuse with the per-request token reduction", async () => {
 		const sessionDir = await sessionRoot();
 		const body = `head line\n${repeatPastThreshold("middle line\n")}tail line\n`;
 		const message = toolResult(body);
 		const pi = observationPackPi();
 		const notify = vi.fn();
-		const setStatus = vi.fn();
 		const context = fakeContext(sessionDir, {
-			mode: "tui",
-			hasUI: true,
-			ui: { notify, setStatus } as never,
+			mode: "tui", hasUI: true, ui: { notify, setStatus: vi.fn() } as never,
 		});
+		for (let index = 0; index < FULL_SENDS; index++) await pi.emitContext([message], context);
+		expect(notify).not.toHaveBeenCalled();
+		for (let index = 0; index < 3; index++) {
+			const projected = await pi.emitContext([message], context);
+			const placeholder = resultText(projected[0]!);
+			const saved = Math.ceil(body.length / 4) - Math.ceil(placeholder.length / 4);
+			expect(notify).toHaveBeenCalledTimes(index + 1);
+			const notice = String(notify.mock.lastCall?.[0]);
+			const count = notice.match(/approximately ([\d,]+) input tokens saved/u)?.[1];
+			expect(Number(count?.replaceAll(",", ""))).toBe(saved);
+			expect(notice).toContain(observationId(message));
+			expect(resultText(message)).toBe(body);
+		}
+	});
 
-		await pi.emitContext([message], context);
-		await pi.emitContext([message], context);
-		await pi.emitContext([message], context);
-		await pi.emitContext([message], context);
+	it("notifies on each recall without counting returned tokens as savings", async () => {
+		const sessionDir = await sessionRoot();
+		const pi = observationPackPi();
+		const message = toolResult(repeatPastThreshold("recall evidence\n"));
+		await project(pi, message, sessionDir, FULL_SENDS + 1);
+		const notify = vi.fn();
+		const context = fakeContext(sessionDir, {
+			mode: "tui", hasUI: true, ui: { notify, setStatus: vi.fn() } as never,
+		});
+		for (const offset of [0, 100]) {
+			const recalled = await pi.tool("obs_recall").execute(
+				"recall-tui", { id: observationId(message), offset }, undefined, undefined, context,
+			);
+			const content = recalled.content.flatMap((part) => part.type === "text" ? [part.text] : []).join("\n");
+			expect(recalled.details).toMatchObject({ recalledTokens: Math.ceil(content.length / 4) });
+			const notice = String(notify.mock.lastCall?.[0]);
+			expect(notice).toContain("0 tokens saved");
+			const count = notice.match(/approximately ([\d,]+) input tokens added/u)?.[1];
+			expect(Number(count?.replaceAll(",", ""))).toBe(Math.ceil(content.length / 4));
+		}
+		expect(notify).toHaveBeenCalledTimes(2);
+	});
 
-		expect(notify).toHaveBeenCalledTimes(1);
-		expect(notify.mock.calls[0]?.[0]).toMatch(
-			/^⚡ SoL-Pi · Observation Pack\nMoney saved · [\d,]+ context tokens avoided$/u,
-		);
+	it("does not report savings when archiving fails open", async () => {
+		const sessionDir = await sessionRoot();
+		await writeFile(join(sessionDir, "sol-pi"), "not a directory");
+		captureConsoleErrors();
+		const pi = observationPackPi();
+		const message = toolResult(repeatPastThreshold("evidence\n"));
+		const notify = vi.fn();
+		const context = fakeContext(sessionDir, {
+			mode: "tui", ui: { notify, setStatus: vi.fn() } as never,
+		});
+		for (let index = 0; index < FULL_SENDS + 2; index++) {
+			expect(await pi.emitContext([message], context)).toEqual([message]);
+		}
+		expect(notify).not.toHaveBeenCalled();
 	});
 
 	it("isolates objects and send counters by Pi session", async () => {

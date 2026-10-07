@@ -1,5 +1,16 @@
 # Pi Compatibility
 
+## Current fork branch
+
+The `tzj/omp-sol-pi-compat` branch is tested with Pi **1.0.4** (201 tests across 22
+files) and the Action Fusion + ObservationPack profile on **OMP 18.6.1 and 18.7.0**. See
+[OMP installation and validation](omp.md). The Pi development-dependency upgrade
+and command-error-result handling are regression-tested; no host is patched.
+The older upstream compatibility record below is historical, not a fresh
+backward-compatibility guarantee for this branch.
+
+## Historical upstream baseline
+
 SoL-Pi is developed and tested against `@earendil-works/pi-coding-agent` 0.85.1 and remains compatible with the originally supported 0.84.2 release. The current 19 test files (140 tests), type checking, package inspection, public API checks, and offline extension startup passed on both releases. Previous checks covered the public API surface of Pi 0.81.1, the base used by the original Pi fork; they are not a current full-suite compatibility guarantee. The runtime range is deliberately expressed as a peer dependency because Pi owns installation and upgrade of its packages; it is not a guarantee for every Pi version.
 
 SoL-Pi imports only public package exports:

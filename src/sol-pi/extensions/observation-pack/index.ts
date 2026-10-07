@@ -101,12 +101,15 @@ export function createObservationPackExtension(): ExtensionFactory {
 					nextOffset: chunk.nextOffset,
 					eof: chunk.eof,
 				});
+				const recalledTokens = estimateTokens(content);
+				showSolPiSavings(ctx, "Observation Pack", `0 tokens saved; approximately ${formatSavingsCount(recalledTokens, "input tokens added by recall")}`);
 				return {
 					content: [{ type: "text", text: content }],
 					details: {
 						id: params.id,
 						offset,
 						bytes: chunk.bytes,
+						recalledTokens,
 						lines: chunk.lines,
 						nextOffset: chunk.nextOffset,
 						eof: chunk.eof,
@@ -116,10 +119,10 @@ export function createObservationPackExtension(): ExtensionFactory {
 			renderCall(params, theme) {
 				const offset = params.offset ?? 0;
 				const base = new Text(theme.fg("dim", `Recall ${params.id} from byte ${offset}`), 0, 0);
-				return renderSolPiTool(theme, "Observation Pack", "full observation replay avoided", base);
+				return renderSolPiTool(theme, "Observation Pack", "Recall adds context; token count available on completion", base);
 			},
 			renderResult(result, { isPartial }, theme) {
-				const details = result.details as { bytes?: number; lines?: number } | undefined;
+				const details = result.details as { bytes?: number; lines?: number; recalledTokens?: number } | undefined;
 				const base = new Text(
 					theme.fg(
 						isPartial ? "warning" : "dim",
@@ -130,7 +133,10 @@ export function createObservationPackExtension(): ExtensionFactory {
 					0,
 					0,
 				);
-				return renderSolPiTool(theme, "Observation Pack", "full observation replay avoided", base);
+				const saving = details?.recalledTokens === undefined
+					? "Recall adds context; token count unavailable"
+					: `0 tokens saved; approximately ${formatSavingsCount(details.recalledTokens, "input tokens added by recall")}`;
+				return renderSolPiTool(theme, "Observation Pack", saving, base);
 			},
 		});
 
@@ -190,13 +196,11 @@ export function createObservationPackExtension(): ExtensionFactory {
 						placeholderTokens,
 						removedTokens,
 					});
-					if (previousSends === FULL_SENDS) {
-						showSolPiSavings(
-							ctx,
-							"Observation Pack",
-							formatSavingsCount(removedTokens, "context tokens avoided"),
-						);
-					}
+					showSolPiSavings(
+						ctx,
+						"Observation Pack",
+						`approximately ${formatSavingsCount(removedTokens, "input tokens saved this request")} (${formatSavingsCount(observation.tokens, "original")} -> ${formatSavingsCount(placeholderTokens, "placeholder")}; ${observation.toolName} ${observation.id})`,
+					);
 					projected[index] = { ...message, content: [{ type: "text", text: placeholder }] };
 					sentCounts.set(sendCountKey, previousSends + 1);
 				} catch (error) {

@@ -9,7 +9,10 @@
 		"assets",
 		"docs/compatibility.md",
 		"docs/configuration.md",
+		"docs/omp.md",
 		"scripts/check-sol-pi-config.mjs",
+		"scripts/check-omp.mjs",
+		"scripts/omp-smoke-provider.ts",
 		"agents-install.md",
 		"README.md",
 		"LICENSE",
@@ -21,7 +24,8 @@
 	"scripts": {
 		"test": "vitest run",
 		"typecheck": "tsc --noEmit",
-		"check": "npm run typecheck && npm test && npm pack --dry-run"
+		"check": "npm run typecheck && npm test && npm pack --dry-run",
+		"check:omp": "node scripts/check-omp.mjs"
 	},
 	"keywords": [
 		"pi-package",
@@ -41,19 +45,20 @@
 		"typebox": "*"
 	},
 	"devDependencies": {
-		"@earendil-works/pi-agent-core": "0.85.1",
-		"@earendil-works/pi-ai": "0.85.1",
-		"@earendil-works/pi-coding-agent": "0.85.1",
-		"@earendil-works/pi-tui": "0.85.1",
+		"@earendil-works/pi-agent-core": "1.0.4",
+		"@earendil-works/pi-ai": "1.0.4",
+		"@earendil-works/pi-coding-agent": "1.0.4",
+		"@earendil-works/pi-tui": "1.0.4",
 		"@types/node": "24.12.4",
 		"typebox": "1.3.7",
 		"typescript": "5.9.3",
-		"vitest": "4.1.9"
+		"vitest": "4.1.11"
 	},
 	"engines": {
 		"node": ">=22.19.0"
 	},
 	"overrides": {
+		"source-map-js": "1.2.2",
 		"nanoid": "3.3.18",
 		"postcss": "8.5.26",
 		"protobufjs": "7.6.5"

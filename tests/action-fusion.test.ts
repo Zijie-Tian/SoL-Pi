@@ -6,14 +6,13 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { BashOperations, ExtensionAPI, ExtensionContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
+import type { BashOperations, ExtensionAPI, ExtensionToolContext as ExtensionContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import {
 	type ActionFusionOptions,
 	assertUnchangedBeforeCommand,
 	createActionFusionExtension,
 } from "../src/sol-pi/extensions/action-fusion/index.ts";
 import { withFusedFileQueue } from "../src/sol-pi/extensions/action-fusion/file-queue.ts";
-import { componentText, plainTheme } from "./helpers.ts";
 
 function delay(ms: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, ms));
@@ -118,34 +117,6 @@ describe("action fusion then_run", () => {
 		expect(edit.name).toBe("edit");
 	});
 
-	it.each([
-		{ label: "default checkout name", cwd: join(tmpdir(), "SoL-Pi"), path: "target.ts" },
-		{ label: "unrelated checkout name", cwd: join(tmpdir(), "plain-checkout"), path: "target.ts" },
-		{ label: "repository name in the target path", cwd: join(tmpdir(), "plain-checkout"), path: "SoL-Pi/target.ts" },
-	])("renders a fused mutation as an English lightning savings call ($label)", ({ cwd, path }) => {
-		const { write } = loadFusedTools();
-		const fusedArgs = {
-			path,
-			content: "export {};\n",
-			then_run: { command: "npm test" },
-		};
-		const fused = write.renderCall!(fusedArgs, plainTheme, {
-			cwd,
-			args: fusedArgs,
-		} as never);
-		const plainArgs = { path, content: "export {};\n" };
-		const plain = write.renderCall!(plainArgs, plainTheme, {
-			cwd,
-			args: plainArgs,
-		} as never);
-
-		expect(componentText(fused)).toContain("⚡ SoL-Pi · Action Fusion");
-		expect(componentText(fused)).toContain("Money saved · 1 model round-trip avoided");
-		// A normal path or its OSC 8 hyperlink may contain the repository name.
-		expect(componentText(plain)).not.toContain("⚡ SoL-Pi · Action Fusion");
-		expect(componentText(plain)).not.toContain("Money saved · 1 model round-trip avoided");
-	});
-
 	it("runs write then_run through bash after the written content is visible", async () => {
 		const dir = await createTempDir();
 		const filePath = join(dir, "written.txt");
@@ -174,27 +145,39 @@ describe("action fusion then_run", () => {
 		expect(text(result)).toContain("write check passed");
 	});
 
-	it("announces savings only after a fused command succeeds in TUI mode", async () => {
+	it.each([12_345, undefined])("reports every successful fusion with context estimate %s", async (tokens) => {
 		const dir = await createTempDir();
 		const notify = vi.fn();
-		const setStatus = vi.fn();
-		const { write } = loadFusedTools({
-			bashOptions: { operations: { exec: async () => ({ exitCode: 0 }) } },
+		const { write, edit } = loadFusedTools();
+		const context = createContext(dir, {
+			mode: "tui", hasUI: true, ui: { notify, setStatus: vi.fn() } as never,
+			getContextUsage: () => tokens === undefined ? undefined : { tokens, contextWindow: 128_000, percent: tokens / 1280 },
 		});
-
-		await write.execute(
-			"write-tui",
-			{ path: "target.ts", content: "export {};\n", then_run: { command: "npm test" } },
-			undefined,
-			undefined,
-			createContext(dir, { mode: "tui", hasUI: true, ui: { notify, setStatus } as never }),
-		);
-
-		expect(notify).toHaveBeenCalledWith(
-			"⚡ SoL-Pi · Action Fusion\nMoney saved · 1 model round-trip avoided",
-			"info",
-		);
+		await write.execute("write-tui", {
+			path: "target.txt", content: "before\n", then_run: { command: "test -f target.txt" },
+		}, undefined, undefined, context);
+		await edit.execute("edit-tui", {
+			path: "target.txt", edits: [{ oldText: "before", newText: "after" }], then_run: { command: "test -f target.txt" },
+		}, undefined, undefined, context);
+		expect(await readFile(join(dir, "target.txt"), "utf8")).toBe("after\n");
+		expect(notify).toHaveBeenCalledTimes(2);
+		for (const [notice] of notify.mock.calls) {
+			if (tokens === undefined) {
+				expect(notice).toContain("token savings unavailable");
+				expect(notice).not.toMatch(/\d[\d,]* input tokens/u);
+			} else {
+				const count = String(notice).match(/approximately ([\d,]+) input tokens/u)?.[1];
+				expect(Number(count?.replaceAll(",", ""))).toBe(tokens);
+				expect(notice).toContain("estimate");
+			}
+		}
+		await expect(write.execute("write-failed-tui", {
+			path: "target.txt", content: "preserved\n", then_run: { command: "exit 7" },
+		}, undefined, undefined, context)).rejects.toThrow("[then_run:failed]");
+		expect(notify).toHaveBeenCalledTimes(2);
+		expect(await readFile(join(dir, "target.txt"), "utf8")).toBe("preserved\n");
 	});
+
 
 	it("runs edit then_run after the edited content is visible", async () => {
 		const dir = await createTempDir();

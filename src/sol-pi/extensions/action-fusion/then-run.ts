@@ -5,7 +5,7 @@
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import type { AgentToolResult } from "@earendil-works/pi-agent-core";
-import { type BashToolOptions, createBashToolDefinition, type ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { type BashToolOptions, createBashToolDefinition, type ExtensionToolContext } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { withFusedFileQueue } from "./file-queue.ts";
 
@@ -87,15 +87,18 @@ export async function executeMutationThenRun<TDetails>({
 	toolCallId: string;
 	absolutePath: string;
 	thenRun: ThenRunInput | undefined;
-	mutate: () => Promise<AgentToolResult<TDetails>>;
+	mutate: () => Promise<AgentToolResult<TDetails> & { isError?: boolean }>;
 	bashOptions: BashToolOptions | undefined;
 	signal: AbortSignal | undefined;
-	ctx: ExtensionContext;
+	ctx: ExtensionToolContext;
 }): Promise<AgentToolResult<TDetails>> {
 	return withFusedFileQueue(absolutePath, async () => {
-		let mutationResult: AgentToolResult<TDetails>;
+		let mutationResult: AgentToolResult<TDetails> & { isError?: boolean };
 		try {
 			mutationResult = await mutate();
+			if (thenRun !== undefined && mutationResult.isError) {
+				throw new Error(resultText(mutationResult) || "File mutation failed");
+			}
 		} catch (error) {
 			if (thenRun !== undefined) {
 				throw thenRunSkippedError(error);
@@ -112,6 +115,7 @@ export async function executeMutationThenRun<TDetails>({
 		try {
 			const bashResult = await bash.execute(`${toolCallId}:then_run`, thenRun, signal, undefined, ctx);
 			const output = resultText(bashResult);
+			if (bashResult.isError) throw new Error(output || "Follow-up command failed");
 			return {
 				...mutationResult,
 				content: [
